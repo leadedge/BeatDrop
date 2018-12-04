@@ -1,27 +1,23 @@
- GENERAL:
-
-   ESC             exit help / menus
-   ALT+ENTER       toggle fullscreen
-
- PRESETS:
-
-   SPACE / H       soft / hard cut to next preset
-   BACKSPACE       go back to previous preset
-   ` / ~           [un]lock current preset
-   R               toggle random/sequential preset order 
-   L               load specific preset
-   M               show/hide preset-editing Menu
-   S               save new preset
-   A               do random mini-mash-up
-   D               toggle warp & comp shader locks
-
- PLAYBACK:
-
-   F1    play/pause      F2    stop
-   F3    prev            F4    next
-   F5    volume up       F6    volume down
-   F7    shuffle         F8    repeat mode
-
- INFO:
-
-   F12   help            F9    title / time / preset
+   ESC  exit help/menus
+   
+   F1   help
+   F4   preset name
+   F5   frames per second
+   F6   preset rating
+   F8   change preset folder
+   F12  show/hide render window
+   
+ PRESET BROWSING:
+   SPACE     soft transition to next preset
+   H         instant hard cut to next preset
+   BACKSPACE go back to previous preset
+   ` or ~    lock/unlock current preset
+   R         toggle random/sequential preset order 
+   L         load specific preset
+   +/-       rate current preset (better/worse)
+   
+ PRESET EDITING AND SAVING
+   M    show/hide preset-editing Menu
+   S    save new preset
+   A    do random mini-mash-up
+   D    toggle warp & comp shader locks

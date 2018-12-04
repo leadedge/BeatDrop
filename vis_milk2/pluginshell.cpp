@@ -380,7 +380,9 @@ int CPluginShell::InitVJStuff(RECT* pClientRect)
 		}
 		else
 		{
-			SetRect(&rect, 0, 0, 384, 384);
+			// SPOUT - make help screen wider
+			// SetRect(&rect, 0, 0, 384, 384);
+			SetRect(&rect, 0, 0, 640, 360);
 			AdjustWindowRect(&rect, dwStyle, 0); // convert client->wnd
 
 			rect.right  -= rect.left;
@@ -486,6 +488,8 @@ int CPluginShell::InitVJStuff(RECT* pClientRect)
 
 		m_text.Finish();
 		m_text.Init(m_vjd3d9_device, m_lpDDSText, 0);
+
+		printf("vj mode create\n");
 
 		m_bClearVJWindow = true;
 	}
@@ -823,6 +827,7 @@ void CPluginShell::CleanUpDirectX()
 
 int CPluginShell::PluginPreInitialize(HWND hWinampWnd, HINSTANCE hWinampInstance)
 {
+
 	// PROTECTED CONFIG PANEL SETTINGS (also see 'private' settings, below)
 	m_start_fullscreen      = 0;
 	m_start_desktop         = 0;
@@ -1005,7 +1010,8 @@ int CPluginShell::PluginPreInitialize(HWND hWinampWnd, HINSTANCE hWinampInstance
 	m_align_weights_ready = 0;
 
 	// SEPARATE TEXT WINDOW (FOR VJ MODE)
-	m_vj_mode       = 0;
+	// SPOUT
+	m_vj_mode = 1; // 0;
 	m_hidden_textwnd = 0;
 	m_resizing_textwnd = 0;
 	m_hTextWnd		= NULL;
@@ -1262,7 +1268,10 @@ int CPluginShell::PluginRender(unsigned char *pWaveL, unsigned char *pWaveR)//, 
 	else
 		m_lost_focus = (GetFocus() != GetPluginWindow());
 
-	if (m_hidden || m_resizing)
+	// SPOUT
+	// Allow render when minimized
+	// if (m_hidden || m_resizing)
+	if (m_resizing)
 	{
 		Sleep(30);
 		return true;
@@ -1398,6 +1407,7 @@ void CPluginShell::DrawAndDisplay(int redraw)
 
 		if (!m_vjd3d9_device)   // in VJ mode, this renders to different context, so do it after BeginScene() on 2nd device.
 			RenderBuiltInTextMsgs();    // to m_lpDDSText?
+		
 		MyRenderUI(&m_upper_left_corner_y, &m_upper_right_corner_y, &m_lower_left_corner_y, &m_lower_right_corner_y, m_left_edge, m_right_edge);
 		RenderPlaylist();
 
@@ -1410,8 +1420,9 @@ void CPluginShell::DrawAndDisplay(int redraw)
 	// VJ Mode:
 	if (m_vj_mode && m_vjd3d9_device && !m_hidden_textwnd && D3D_OK==m_vjd3d9_device->BeginScene())
 	{
-		if (!m_lpDDSText || m_bClearVJWindow)
+		if (!m_lpDDSText || m_bClearVJWindow) {
 			m_vjd3d9_device->Clear(0, 0, D3DCLEAR_TARGET, 0xFF000000, 1.0f, 0);
+		}
 		m_bClearVJWindow = false;
 		// note: when using debug DX runtime, textwnd will flash red/green after frame 4, if no text is drawn on a frame!
 
@@ -1857,7 +1868,6 @@ void CPluginShell::DrawDarkTranslucentBox(RECT* pr)
 void CPluginShell::RenderBuiltInTextMsgs()
 {
 	int _show_press_f1_NOW = (m_show_press_f1_msg && m_time < PRESS_F1_DUR);
-
 	{
 		RECT r;
 
@@ -1866,27 +1876,27 @@ void CPluginShell::RenderBuiltInTextMsgs()
 			int y = m_upper_left_corner_y;
 
 			SetRect(&r, 0, 0, GetWidth(), GetHeight());
-			if(!g_szHelp_W)
+			if (!g_szHelp_W)
 				m_d3dx_font[HELPSCREEN_FONT]->DrawTextA(NULL, (char*)g_szHelp, -1, &r, DT_CALCRECT, 0xFFFFFFFF);
 			else
 				m_d3dx_font[HELPSCREEN_FONT]->DrawTextW(NULL, g_szHelp, -1, &r, DT_CALCRECT, 0xFFFFFFFF);
 
 			r.top += m_upper_left_corner_y;
 			r.left += m_left_edge;
-			r.right += m_left_edge + PLAYLIST_INNER_MARGIN*2;
-			r.bottom += m_upper_left_corner_y + PLAYLIST_INNER_MARGIN*2;
+			r.right += m_left_edge + PLAYLIST_INNER_MARGIN * 2;
+			r.bottom += m_upper_left_corner_y + PLAYLIST_INNER_MARGIN * 2;
 			DrawDarkTranslucentBox(&r);
 
 			r.top += PLAYLIST_INNER_MARGIN;
 			r.left += PLAYLIST_INNER_MARGIN;
 			r.right -= PLAYLIST_INNER_MARGIN;
 			r.bottom -= PLAYLIST_INNER_MARGIN;
-			if(!g_szHelp_W)
+			if (!g_szHelp_W)
 				m_d3dx_font[HELPSCREEN_FONT]->DrawTextA(NULL, (char*)g_szHelp, -1, &r, 0, 0xFFFFFFFF);
 			else
 				m_d3dx_font[HELPSCREEN_FONT]->DrawTextW(NULL, g_szHelp, -1, &r, 0, 0xFFFFFFFF);
 
-			m_upper_left_corner_y += r.bottom-r.top + PLAYLIST_INNER_MARGIN*3;
+			m_upper_left_corner_y += r.bottom - r.top + PLAYLIST_INNER_MARGIN * 3;
 		}
 
 		// render 'Press F1 for Help' message in lower-right corner:
@@ -2076,6 +2086,7 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 	//bool bShiftHeldDown = (GetKeyState(VK_SHIFT) & mask) != 0;
 	bool bCtrlHeldDown  = (GetKeyState(VK_CONTROL) & mask) != 0;
 	//bool bAltHeldDown: most keys come in under WM_SYSKEYDOWN when ALT is depressed.
+	RECT rect;
 
 	switch (uMsg)
 	{
@@ -2117,14 +2128,18 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 		break;
 
 	case WM_SIZE:
+
 		// clear or set activity flag to reflect focus
 		if (m_lpDX && m_lpDX->m_ready && !m_resizing)
 		{
 			m_hidden = (SIZE_MAXHIDE==wParam || SIZE_MINIMIZED==wParam) ? TRUE : FALSE;
-
+			// SPOUT DEBUG
+			// Allow restore from minimize without reset of the window
 			if (SIZE_MAXIMIZED==wParam || SIZE_RESTORED==wParam) // the window has been maximized or restored
+			// if (SIZE_MAXIMIZED == wParam ) // the window has been maximized
 				OnUserResizeWindow();
 		}
+
 		break;
 
 	case WM_ENTERSIZEMOVE:
@@ -2132,8 +2147,14 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 		break;
 
 	case WM_EXITSIZEMOVE:
-		if (m_lpDX && m_lpDX->m_ready)
-			OnUserResizeWindow();
+		// SPOUT
+		// Find out whether the window has been resized or just moved
+		GetClientRect(hWnd, &rect);
+		if ((rect.right - rect.left) != 1280
+			|| (rect.bottom - rect.top) != 720) {
+			if (m_lpDX && m_lpDX->m_ready)
+				OnUserResizeWindow();
+		}
 		m_resizing = 0;
 		break;
 
@@ -2160,9 +2181,9 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 		break;
 
 	case WM_COMMAND: {
-		    // then allow the plugin to override any command:
-		    if (MyWindowProc(hWnd, uMsg, wParam, lParam) == 0)
-			    return 0;
+	    // then allow the plugin to override any command:
+	    if (MyWindowProc(hWnd, uMsg, wParam, lParam) == 0)
+		    return 0;
 		}
 		break;
 
@@ -2226,6 +2247,16 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 		break;
 
 	case WM_KEYDOWN:
+
+		// SPOUT DEBUG : BeatDrop help changed from F12
+		// Special case to pass the key code on to plugin
+		// so that the ui mode is set back to regular
+		// and any existing mode is cancelled and text is cleared
+		if (wParam == VK_F1) {
+			MyWindowProc(hWnd, uMsg, wParam, lParam);
+			return 0;
+		}
+
 		if (m_show_playlist)
 		{
 			switch (wParam)
@@ -2278,15 +2309,23 @@ LRESULT CPluginShell::PluginShellWindowProc(HWND hWnd, unsigned uMsg, WPARAM wPa
 		}
 
 		// allow the plugin to override any keys:
+		// LJ - note from plugin.cpp
+		// handle non - character keys(virtual keys) and return 0.
+		//         if we don't handle them, return 1, and the shell will
+		//         (passing some to the shell's key bindings, some to Winamp,
+		//          and some to DefWindowProc)
 		if (MyWindowProc(hWnd, uMsg, wParam, lParam) == 0)
 			return 0;
 
 		switch (wParam)
 		{
-		    case VK_F12:
-			    m_show_press_f1_msg = 0;
-			    ToggleHelp();
-			    return 0;
+			// SPOUT : hide/show render window
+			case VK_F12:
+				if(IsWindowVisible(GetPluginWindow()))
+					ShowWindow(GetPluginWindow(), SW_HIDE);
+				else
+					ShowWindow(GetPluginWindow(), SW_SHOW);
+				return 0;
 
 		    case VK_ESCAPE:
 			    if (m_show_help)

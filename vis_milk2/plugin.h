@@ -30,6 +30,12 @@ OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef __NULLSOFT_DX9_EXAMPLE_PLUGIN_H__
 #define __NULLSOFT_DX9_EXAMPLE_PLUGIN_H__ 1
 
+// =========================================================
+// SPOUT
+// SpoutLibary includes OpenGL
+#include "..\spoutlibrary\SpoutLibrary.h"
+// =========================================================
+
 #include "pluginshell.h"
 #include "md_defines.h"
 #include "menu.h"
@@ -273,7 +279,26 @@ public:
 
     //====[ 1. members added to create this specific example plugin: ]================================================
 
-        /// CONFIG PANEL SETTINGS THAT WE'VE ADDED (TAB #2)
+	// =========================================================
+	// SPOUT variables
+	//
+	// SpoutSender * spoutsender; // MilkDrop is a sender
+	SPOUTLIBRARY * spoutsender;	// A spout sender object
+	char WinampSenderName[256]; // The sender name
+	bool bInitialized; // did it work ?
+	bool OpenSender(unsigned int width, unsigned int height);
+	bool InitOpenGL();
+	bool bSpoutChanged; // set to write config on exit
+	bool bSpoutOut; // Spout output on or off
+	unsigned int g_Width;
+	unsigned int g_Height;
+	HWND g_hwnd;
+	HDC g_hdc;
+	wchar_t	m_szSavedSongTitle[512]; // for saving song tile with Spout on or off
+	// =========================================================
+
+	
+	/// CONFIG PANEL SETTINGS THAT WE'VE ADDED (TAB #2)
         bool		m_bFirstRun;
         float		m_fBlendTimeAuto;		// blend time when preset auto-switches
         float		m_fBlendTimeUser;		// blend time when user loads a new preset

@@ -1151,6 +1151,86 @@ void CPlugin::RenderFrame(int bRedraw)
     }
     fOldTime = fNewTime;
     */
+
+
+	// =========================================================
+	//
+	// SPOUT output
+	//
+	// Adapted from : https://gist.github.com/karlgluck/8467971
+	//
+	if (bSpoutOut) { // Spout is selected in Visualisation -> Configure plugin -> "More Settings"
+
+		// Grab the backbuffer from the Direct3D device
+		HRESULT hr;
+		unsigned int width = 0;
+		unsigned int height = 0;
+		LPDIRECT3DDEVICE9 d3d_device = GetDevice();
+		LPDIRECT3DSURFACE9 back_buffer = NULL;
+		d3d_device->GetBackBuffer(0, 0, D3DBACKBUFFER_TYPE_MONO, &back_buffer);
+
+		// Notes by Karl Gluck :
+		//
+		// "Get the buffer's description and make an offscreen surface in system memory.
+		// We need to do this because the backbuffer is in video memory and can't be locked
+		// unless the device was created with a special flag (D3DPRESENTFLAG_LOCKABLE_BACKBUFFER).
+		// Unfortunately, a video-memory buffer CAN be locked with LockRect. The effect is
+		// that it crashes your app when you try to read or write to it."
+		//
+		// So here we don't do that!
+		//
+		D3DLOCKED_RECT d3dlr;
+		D3DSURFACE_DESC desc;
+		LPDIRECT3DSURFACE9 offscreen_surface = NULL;
+		back_buffer->GetDesc(&desc);
+
+		// Check backbuffer size against sender initialized size
+		if (bInitialized == false || g_Width != desc.Width || g_Height != desc.Height) {
+
+			g_Width = desc.Width;
+			g_Height = desc.Height;
+
+			// If initialized already, update the sender to the new size
+			// There is no shared texture in this app but there will be in the 
+			// spoutsender object when we create a sender and we can send pixels to it
+			if (bInitialized)
+				spoutsender->UpdateSender(WinampSenderName, g_Width, g_Height);
+			else
+				bInitialized = OpenSender(g_Width, g_Height);
+			back_buffer->Release();
+			return;
+		}
+
+		if (!bInitialized) {
+			back_buffer->Release();
+			return; // safety in case something went wrong
+		}
+
+		hr = d3d_device->CreateOffscreenPlainSurface(desc.Width, desc.Height, desc.Format, D3DPOOL_SYSTEMMEM, &offscreen_surface, NULL);
+		if (SUCCEEDED(hr)) {
+			// Copy from video memory to system memory
+			hr = d3d_device->GetRenderTargetData(back_buffer, offscreen_surface);
+			if (SUCCEEDED(hr)) {
+				// Lock the surface using some flags for optimization
+				hr = offscreen_surface->LockRect(&d3dlr, NULL, D3DLOCK_NO_DIRTY_UPDATE | D3DLOCK_READONLY);
+				if (SUCCEEDED(hr)) {
+					// Pass the pixels to spout
+					// DX9 needs D3DFMT_X8R8G8B8
+					// DX11 needs DXGI_FORMAT_B8G8R8X8_UNORM
+					// So the user has to set up for X8R8G8B8. 
+					spoutsender->SendImage((unsigned char *)d3dlr.pBits, g_Width, g_Height, GL_BGRA_EXT, false);
+				}
+			}
+		}
+
+		// Release all of our references
+		offscreen_surface->UnlockRect();
+		offscreen_surface->Release();
+		back_buffer->Release();
+
+		// ======================================================================
+	}
+
 }
 
 void CPlugin::DrawMotionVectors()

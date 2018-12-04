@@ -489,7 +489,66 @@ Order of Function Calls
 
 
 
+========================================================================================================
+SPOUT :
+
+	Credit to psilocin@openmailbox.org for the original idea to convert MilkDrop for Spout output
+
+	22.10.14 - changed from Ctrl-Z on and off to default Spout output when the plugin starts
+			   and Ctrl-Z to disable and enable while it is running. Otherwise Spout has to be re-enabled
+			   every time another track is selected.
+	30.10.14 - changed from Glut to pixelformat and OpenGL context creation
+	31.10.14 - changed initialization section to renderframe to ensure correct frame size
+			 - added Ctrl-D user selection of DirectX mode
+			 - flag bUseDX11 to select either DirectX 9 or DirectX 11
+			 - saved DX mode flag in configuration file
+	05.11.14 - Included Spout options in the Visualization configuration control panel
+				Options -> Visualizatiosn -> Configure Plugin
+				MORE SETTINGS tab
+					Enable Spout output
+					Enable Spout DirectX 11 mode
+				Settings are saved with OK
+			 - retained Ctrl-Z for spout on / off while the Visualizer is running
+			 - included Ctrl-D to change from DirectX 9 to DirectX 11
+			   (this might be removed in a future release if it gives trouble)
+			   The selected settings are saved when the Visualizer is stopped.
+	25.04.15 - Changed Spout SDK from graphics auto detection to set DirectX mode to optional installer
+			 - Recompile for dual DX option installer
+	17.06.15 - User observation that custom messages do not work.
+			   This is isolated to "RenderStringToTitleTexture" and seems to be related to
+			   generating the fonts from GDI to DX9. Not sure of the reason. Could be DX9 libraries.
+			   As a a workaround, custom message rendering is replaced with the same as used for
+			   title animation which works OK. The limitation is that this gives a fixed font,
+			   but the colour should come out the same as in the custom message setup file.
+	07.07.15 - Recompile for 2.004 release
+	15.09.15 - Recompile for 2.005 release - revised memoryshare SDK
+	08.11.15 - removed directX9/directX11 option for 2.005
+			 - OpenSender and milkdropfs.cpp - removed XRGB format option and always send as ARGB
+	12.11.18 - Removed DX11 (bUseDX11) option from plugin - test for user DX9 selection instead
+	02.12.18 - Rebuild VS2017 /MT with VS2010 100 toolset - Spout 2.007
+			   (VS2017 140 toolset does not work)
+
+
+	03.12.18 - Started modifications to the BeatDrop project (not back-compatible)
+			   BeatDrop name, versioning and authoring by Maxim Volskiy retained
+			   Use the VJ console for help and text output.
+			   Output resolution is 1920x1080 at start
+			   Resolution can subsequently be changed by resizing the render window
+			   The render window can be hidden with the F12 key
+			   and the VJ console can be minimized when not being used
+			   without affecting Spout output.
+	04.12.18 - Monitor dpi awareness for scaled displays
+			   Reset help or menu text when activating either of them
+			   Disable minimize and maximize
+			   Use SpoutLibrary instead of Spout SDK source files
+			   Cleanup
+			   Rebuild VS2017 /MT with Visual Studio 2017 toolset (v141)
+
 */
+
+// SPOUT for VS2017
+// Disable warning C4005
+#pragma warning (disable : 4005)
 
 #include "plugin.h"
 #include "utility.h"
@@ -923,6 +982,23 @@ void CPlugin::MyPreInitialize()
     // (If you want to change the default values for settings that are part of
     //   the plugin shell (framework), do so from OverrideDefaults() above.)
 
+
+	// =========================================================
+	// SPOUT variable initialisation
+	//
+	// Initialize SpoutLibrary
+	spoutsender = GetSpout(); // Create an instance of the Spout library
+	sprintf(WinampSenderName, "BeatDrop");
+	bInitialized = false;
+	bSpoutOut = true; // User on/off toggle
+	bSpoutChanged = false; // set to write config on exit
+	// DirectX 11 mode uses a format that is incompatible with DirectX 9 receivers
+	// DirectX9 mode can fail with some drivers. Noted on Intel/NVIDIA laptop.
+	g_Width = 0;
+	g_Height = 0;
+	g_hwnd = NULL;
+	g_hdc = NULL;
+	
     // seed the system's random number generator w/the current system time:
     //srand((unsigned)time(NULL));  -don't - let winamp do it
 
@@ -1157,6 +1233,11 @@ void CPlugin::MyReadConfig()
 	int n=0;
     wchar_t *pIni = GetConfigIniFile();
 
+	// ======================================
+	// SPOUT - save whether in DirectX11 (true) or DirectX 9 (false) mode, default true
+	bSpoutOut = GetPrivateProfileBoolW(L"settings", L"bSpoutOut", bSpoutOut, pIni);
+	// ======================================
+
 	m_bFirstRun		= !GetPrivateProfileBoolW(L"settings",L"bConfigured" ,false,pIni);
 	m_bEnableRating = GetPrivateProfileBoolW(L"settings",L"bEnableRating",m_bEnableRating,pIni);
     //m_bInstaScan    = GetPrivateProfileBool("settings","bInstaScan",m_bInstaScan,pIni);
@@ -1265,6 +1346,11 @@ void CPlugin::MyWriteConfig()
 	//note: m_szPresetDir is not written here; it is written manually, whenever it changes.
 
 	wchar_t szSectionName[] = L"settings";
+
+	// ================================
+	// SPOUT
+	WritePrivateProfileIntW(bSpoutOut, L"bSpoutOut", pIni, L"settings");
+	// ================================
 
 	WritePrivateProfileIntW(m_bSongTitleAnims,		L"bSongTitleAnims",		pIni, L"settings");
 	WritePrivateProfileIntW(m_bHardCutsDisabled,	    L"bHardCutsDisabled",	pIni, L"settings");
@@ -1471,7 +1557,23 @@ void CPlugin::CleanUpMyNonDx9Stuff()
     // Be sure to clean up any objects here that were
     //   created/initialized in AllocateMyNonDx9Stuff.
 
-    //sound.Finish();
+	// =========================================================
+	// SPOUT cleanup on exit
+	//
+	spoutsender->ReleaseSender();
+	HGLRC ctx = wglGetCurrentContext();
+	if (ctx != NULL) {
+		wglMakeCurrent(NULL, NULL);
+		wglDeleteContext(ctx);
+		ReleaseDC(g_hwnd, g_hdc);
+	}
+
+	// If Spout output or DirectX mode has been changed, save the config file
+	// so it is started in the selected mode the next time
+	if (bSpoutChanged) MyWriteConfig();
+	// =========================================================
+	
+	//sound.Finish();
 
     // NOTE: DO NOT DELETE m_gdi_titlefont_doublesize HERE!!!
 
@@ -4836,7 +4938,9 @@ void CPlugin::MyRenderUI(
                         int idx = m_nMashPreset[mash];
 
                         wchar_t buf[1024];
-                        swprintf(buf, L"%s%s", wasabiApiLangString(mashNames[mash]), m_presets[idx].szFilename);
+						// SPOUT
+                        // swprintf(buf, L"%s%s", wasabiApiLangString(mashNames[mash]), m_presets[idx].szFilename);
+						swprintf(buf, L"%s%s", wasabiApiLangString(mashNames[mash]), m_presets[idx].szFilename.c_str());
                         RECT r2 = orig_rect;
                         r2.top += h;
                         h += m_text.DrawTextW(GetFont(SIMPLE_FONT), buf, -1, &r2, DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX | (pass==0 ? DT_CALCRECT : 0), (mash==m_nMashSlot) ? PLAYLIST_COLOR_HILITE_TRACK : PLAYLIST_COLOR_NORMAL, false);
@@ -5385,42 +5489,68 @@ LRESULT CPlugin::MyWindowProc(HWND hWnd, unsigned uMsg, WPARAM wParam, LPARAM lP
         //   "virtual-key codes [win32]" in the msdn help.
         nRepeat = LOWORD(lParam);
 
+		// SPOUT DEBUG
+		// Special case for F1 help display in pluginshell
+		// to clear the vj screen of any existing text
+		if (wParam == VK_F1) {
+			// Change to regular
+			m_UI_mode = UI_REGULAR;
+			m_waitstring.bActive = false; // For F8
+			// Toggle help display
+			m_show_press_f1_msg = 0;
+			ToggleHelp();
+			return 0;
+		}
+
 		switch(wParam)
 		{
-		case VK_F9:
-            m_bShowSongTitle = !m_bShowSongTitle; // we processed (or absorbed) the key
-			m_bShowSongTime = !m_bShowSongTime;
-			m_bShowSongLen  = !m_bShowSongLen;
+
+		// case VK_F9:
+		// Preset name
+		case VK_F4:
+			// SPOUT - only one of these works because there is no song loaded
+            // m_bShowSongTitle = !m_bShowSongTitle; // we processed (or absorbed) the key
+			// m_bShowSongTime = !m_bShowSongTime;
+			// m_bShowSongLen  = !m_bShowSongLen;
 		    m_bShowPresetInfo = !m_bShowPresetInfo;
             return 0; // we processed (or absorbed) the key
-		//case VK_F4:		m_bShowFPS = !m_bShowFPS;				return 0; // we processed (or absorbed) the key
-		//case VK_F6:		m_bShowRating = !m_bShowRating;			return 0; // we processed (or absorbed) the key
+		
+		// SPOUT - activate some more key functions
+		// case VK_F4:
+		case VK_F5:		m_bShowFPS = !m_bShowFPS;				return 0; // we processed (or absorbed) the key
+		case VK_F6:		m_bShowRating = !m_bShowRating;			return 0; // we processed (or absorbed) the key
+
 		//case VK_F7:
 		//	if (m_nNumericInputMode == NUMERIC_INPUT_MODE_CUST_MSG)
 		//		ReadCustomMessages();		// re-read custom messages
 		//	return 0; // we processed (or absorbed) the key
-		//case VK_F8:
-		//	{
-		//		m_UI_mode = UI_CHANGEDIR;
 
-		//		// enter WaitString mode
-		//		m_waitstring.bActive = true;
-		//		m_waitstring.bFilterBadChars = false;
-		//		m_waitstring.bDisplayAsCode = false;
-		//		m_waitstring.nSelAnchorPos = -1;
-		//		m_waitstring.nMaxLen = min(sizeof(m_waitstring.szText)-1, MAX_PATH - 1);
-		//		lstrcpyW(m_waitstring.szText, GetPresetDir());
-		//		{
-		//			// for subtle beauty - remove the trailing '\' from the directory name (if it's not just "x:\")
-		//			int len = lstrlenW(m_waitstring.szText);
-		//			if (len > 3 && m_waitstring.szText[len-1] == '\\')
-		//				m_waitstring.szText[len-1] = 0;
-		//		}
-		//		wasabiApiLangString(IDS_DIRECTORY_TO_JUMP_TO, m_waitstring.szPrompt, 512);
-		//		m_waitstring.szToolTip[0] = 0;
-		//		m_waitstring.nCursorPos = lstrlenW(m_waitstring.szText);	// set the starting edit position
-		//	}
-		//	return 0; // we processed (or absorbed) the key
+		// SPOUT : This seems to work
+		case VK_F8:
+			{
+				// SPOUT
+				m_show_help = false;
+
+				m_UI_mode = UI_CHANGEDIR;
+
+				// enter WaitString mode
+				m_waitstring.bActive = true;
+				m_waitstring.bFilterBadChars = false;
+				m_waitstring.bDisplayAsCode = false;
+				m_waitstring.nSelAnchorPos = -1;
+				m_waitstring.nMaxLen = min(sizeof(m_waitstring.szText)-1, MAX_PATH - 1);
+				lstrcpyW(m_waitstring.szText, GetPresetDir());
+				{
+					// for subtle beauty - remove the trailing '\' from the directory name (if it's not just "x:\")
+					int len = lstrlenW(m_waitstring.szText);
+					if (len > 3 && m_waitstring.szText[len-1] == '\\')
+						m_waitstring.szText[len-1] = 0;
+				}
+				wasabiApiLangString(IDS_DIRECTORY_TO_JUMP_TO, m_waitstring.szPrompt, 512);
+				m_waitstring.szToolTip[0] = 0;
+				m_waitstring.nCursorPos = lstrlenW(m_waitstring.szText);	// set the starting edit position
+			}
+			return 0; // we processed (or absorbed) the key
 
   //      case VK_F9:
   //          m_bShowShaderHelp = !m_bShowShaderHelp;
@@ -5884,6 +6014,17 @@ LRESULT CPlugin::MyWindowProc(HWND hWnd, unsigned uMsg, WPARAM wParam, LPARAM lP
 				m_waitstring.bActive = true;
 				return 0; // we processed (or absorbed) the key
 			}
+			// SPOUT - put back in for vj mode.
+			else {
+				// Don't close if esc pressed when vj window has focus
+				if (GetFocus() == GetPluginWindow()) {
+					// MessageBox to make sure
+					if (MessageBoxA(GetPluginWindow(), "EXIT - are you sure?", "BeatDrop", MB_YESNO | MB_TOPMOST) == IDYES) {
+						PostMessage(hWnd, WM_CLOSE, 0, 0);
+					}
+					return 0;
+				}
+			}
 			/*else if (hwnd == GetPluginWindow())		// (don't close on ESC for text window)
 			{
 				dumpmsg("User pressed ESCAPE");
@@ -5975,12 +6116,13 @@ LRESULT CPlugin::MyWindowProc(HWND hWnd, unsigned uMsg, WPARAM wParam, LPARAM lP
             }
             break;
 		case VK_END:
-			if (m_UI_mode == UI_LOAD)
+			// printf("VK_END (%d)\n", m_UI_mode);
+			if (m_UI_mode == UI_LOAD) // 2
             {
 				m_nPresetListCurPos = m_nPresets - 1;
 				return 0; // we processed (or absorbed) the key
             }
-            else if (m_UI_mode == UI_MASHUP)
+            else if (m_UI_mode == UI_MASHUP) // 14
             {
                 m_nMashPreset[m_nMashSlot] = m_nPresets-1;
                 m_nLastMashChangeFrame[m_nMashSlot] = GetFrame();  // causes delayed apply
@@ -6146,7 +6288,40 @@ LRESULT CPlugin::MyWindowProc(HWND hWnd, unsigned uMsg, WPARAM wParam, LPARAM lP
 			//m_nNumericInputNum = 0;
 			return 0;
 
-        case 'T':
+
+		// ========================================
+		// SPOUT
+		//
+		//		CTRL-Z - start or stop spout output
+		//
+		case 'Z':
+			if (bCtrlHeldDown)
+			{
+				bSpoutChanged = true; // write config on exit
+				bSpoutOut = !bSpoutOut;
+				if (bSpoutOut) {
+					// Start spout
+					lstrcpyW(m_szSavedSongTitle, m_szSongTitle);
+					wsprintfW(m_szSongTitle, L"Spout output enabled.");
+					LaunchSongTitleAnim();
+					lstrcpyW(m_szSongTitle, m_szSavedSongTitle);
+				}
+				else {
+					// Stop Spout
+					lstrcpyW(m_szSavedSongTitle, m_szSongTitle);
+					wsprintfW(m_szSongTitle, L"Spout output disabled.");
+					LaunchSongTitleAnim();
+					lstrcpyW(m_szSongTitle, m_szSavedSongTitle);
+				}
+				if (bInitialized) {
+					spoutsender->ReleaseSender();
+					bInitialized = false; // Initialized next render frame
+				}
+				return 0;
+			}
+		break;
+		
+		case 'T':
             if (bCtrlHeldDown)
             {
     			// stop display of custom message or song title.
@@ -6154,6 +6329,7 @@ LRESULT CPlugin::MyWindowProc(HWND hWnd, unsigned uMsg, WPARAM wParam, LPARAM lP
                 return 0;
             }
             break;
+
         case 'K':
             if (bCtrlHeldDown)      // kill all sprites
             {
@@ -6205,6 +6381,11 @@ int CPlugin::HandleRegularKey(WPARAM wParam)
 	// straight WM_CHAR messages should be sent in.
 
     // return 0 if you process/absorb the key; otherwise return 1.
+
+	// SPOUT DEBUG for BeatDrop vj mode
+	// For "L, "M', "S" and "VK_F8"
+	// if pluginshell VK_F1 help has been pressed
+	// reset help and clear the window
 
 	if (m_UI_mode == UI_LOAD && ((wParam >= 'A' && wParam <= 'Z') || (wParam >= 'a' && wParam <= 'z')))
 	{
@@ -6480,6 +6661,9 @@ int CPlugin::HandleRegularKey(WPARAM wParam)
 
 	case 's':				// SAVE PRESET
 	case 'S':
+		// SPOUT
+		m_show_help = false;
+
 		if (m_UI_mode == UI_REGULAR)
 		{
 			//m_bPresetLockedByCode = true;
@@ -6504,8 +6688,11 @@ int CPlugin::HandleRegularKey(WPARAM wParam)
         m_bPresetLockedByUser = !m_bPresetLockedByUser;
         return 0;
 
-	case 'l':				// LOAD PRESET
+	case 'l': // LOAD PRESET
 	case 'L':
+		// SPOUT
+		m_show_help = false;
+
 		if (m_UI_mode == UI_LOAD)
 		{
 			m_UI_mode = UI_REGULAR;
@@ -6528,11 +6715,16 @@ int CPlugin::HandleRegularKey(WPARAM wParam)
 	case 'm':
 	case 'M':
 
-		if (m_UI_mode == UI_MENU)
-			m_UI_mode = UI_REGULAR;
-		else if (m_UI_mode == UI_REGULAR || m_UI_mode == UI_LOAD)
-			m_UI_mode = UI_MENU;
+		// SPOUT
+		m_show_help = false;
 
+		if (m_UI_mode == UI_MENU) {
+			m_UI_mode = UI_REGULAR;
+		}
+
+		else if (m_UI_mode == UI_REGULAR || m_UI_mode == UI_LOAD) {
+			m_UI_mode = UI_MENU;
+		}
 		return 0; // we processed (or absorbed) the key
 
 	case '-':
@@ -8748,7 +8940,9 @@ void CPlugin::GenWarpPShaderText(char *szShaderText, float decay, bool bWrap)
     p += sprintf(p, "%c", 1);
 
     p += sprintf(p, "    // sample previous frame%c", LF);
-    p += sprintf(p, "    ret = tex2D( sampler%s_main, uv ).xyz;%c", bWrap ? L"" : L"_fc", LF);
+	// SPOUT
+	p += sprintf(p, "    ret = tex2D( sampler%ls_main, uv ).xyz;%c", bWrap ? L"" : L"_fc", LF);
+	// p += sprintf(p, "    ret = tex2D( sampler%s_main, uv ).xyz;%c", bWrap ? L"" : L"_fc", LF);
     p += sprintf(p, "    %c", LF);
     p += sprintf(p, "    // darken (decay) over time%c", LF);
     p += sprintf(p, "    ret *= %.2f; //or try: ret -= 0.004;%c", decay, LF);
@@ -8813,3 +9007,103 @@ void CPlugin::GetSongTitle(wchar_t *szSongTitle, int nSize)
     emulatedWinampSongTitle = "";
     lstrcpynW(szSongTitle, AutoWide(emulatedWinampSongTitle.c_str(), CP_UTF8), nSize);
 }
+
+// =========================================================
+// SPOUT initialization function
+// Initializes OpenGL and a Spout sender
+//
+bool CPlugin::OpenSender(unsigned int width, unsigned int height)
+{
+
+	if (!InitOpenGL()) {
+		return false;
+	}
+
+	if (bInitialized) {
+		spoutsender->ReleaseSender(); // safety
+		bInitialized = false;
+	}
+
+	// This is a sender so create one
+	// This can be DirectX 11 which is the default
+	// The default DirectX 11 texture format is DXGI_FORMAT_B8G8R8A8_UNORM but we need X8 instead of A8
+
+	// To use DirectX 9 we need to specify that first
+	// Flag option for DX9 of DX11
+	// LJ DEBUG - check directX mode for 2.005
+	// 12.11.18 - fixed for 2.005 and greater - checks user set mode
+
+	bool bRet = false;
+	if (!spoutsender->GetDX9()) {
+		// We have to set the shared texture format as DXGI_FORMAT_B8G8R8X8_UNORM so that receivers know it
+		// because the default is DXGI_FORMAT_B8G8R8A8_UNORM (88)
+		// bRet = spoutsender->CreateSender(WinampSenderName, width, height, (DWORD)DXGI_FORMAT_B8G8R8X8_UNORM);
+		bRet = spoutsender->CreateSender(WinampSenderName, width, height, 88);
+	}
+	else {
+		// We have to set the shared texture format as D3DFMT_X8R8G8B8 so that receivers know it
+		// because the default format argument is zero and that assumes D3DFMT_A8R8G8B8
+		// D3DFMT_X8R8G8B8 - 22
+		// bRet = spoutsender->CreateSender(WinampSenderName, width, height, (DWORD)D3DFMT_X8R8G8B8);
+		bRet = spoutsender->CreateSender(WinampSenderName, width, height, 22);
+	}
+
+	if (bRet) {
+		g_Width = width;
+		g_Height = height;
+		bSpoutOut = true;
+		bInitialized = true;
+		return true;
+	}
+
+	// printf("    Create sender failed\n");
+
+	return false;
+
+} // end OpenSender
+
+
+bool CPlugin::InitOpenGL()
+{
+
+	HGLRC hRC;
+
+	// We only need an OpenGL context with no window
+	// Once created it seems stable and retained
+	// So this is only done once
+	if (wglGetCurrentContext() == NULL) {
+		g_hwnd = GetForegroundWindow();
+		if (!g_hwnd)	return false;
+
+		g_hdc = GetDC(g_hwnd);
+		if (!g_hdc) 	return false;
+
+		PIXELFORMATDESCRIPTOR pfd;
+		ZeroMemory(&pfd, sizeof(pfd));
+		pfd.nSize = sizeof(pfd);
+		pfd.nVersion = 1;
+		pfd.dwFlags = PFD_DRAW_TO_WINDOW | PFD_SUPPORT_OPENGL | PFD_DOUBLEBUFFER;
+		pfd.iPixelType = PFD_TYPE_RGBA;
+		pfd.cColorBits = 32;
+		pfd.cDepthBits = 16;
+		pfd.iLayerType = PFD_MAIN_PLANE;
+
+		int iFormat = ChoosePixelFormat(g_hdc, &pfd);
+		if (!iFormat) return false;
+
+		if (!SetPixelFormat(g_hdc, iFormat, &pfd)) return false;
+
+		hRC = wglCreateContext(g_hdc);
+		if (!hRC) return false;
+
+		wglMakeCurrent(g_hdc, hRC);
+
+		// did it work ?
+		if (wglGetCurrentContext() == NULL)	return false;
+
+		// Drop through to return true
+	}
+
+	return true;
+}
+// =========================================================

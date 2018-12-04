@@ -161,6 +161,7 @@
     <ClInclude Include="..\audio\loopback-capture.h" />
     <ClInclude Include="..\audio\prefs.h" />
     <ClInclude Include="..\audio\audiobuf.h" />
+    <ClInclude Include="..\spoutlibrary\SpoutLibrary.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="text1.bin">
